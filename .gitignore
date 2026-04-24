@@ -1,0 +1,24 @@
+# Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Claude code
+.claude/
+
+# Project specific data (Personal Wiki content)
+raw/
+wiki/
