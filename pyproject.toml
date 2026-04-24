@@ -12,6 +12,7 @@ dependencies = [
     "chonkie>=0.1.0",
     "tqdm>=4.66.0",
     "tiktoken>=0.7.0",
+    "pymupdf>=1.27.2.2",
 ]
 
 [project.scripts]

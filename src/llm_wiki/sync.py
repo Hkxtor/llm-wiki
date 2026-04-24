@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 from llm_wiki.db import get_db_connection, ensure_schema_and_model_match
 import os
+import fitz
 
 # Load env
 load_dotenv()
@@ -70,6 +71,26 @@ def get_embeddings(texts):
 
     return all_embeddings
 
+def extract_text_from_file(filepath: str) -> str:
+    """Extracts text depending on the file type."""
+    ext = filepath.lower().split('.')[-1]
+
+    if ext == 'md':
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+
+    elif ext == 'pdf':
+        content = []
+        # Open the PDF using PyMuPDF
+        with fitz.open(filepath) as doc:
+            for page in doc:
+                content.append(page.get_text())
+
+        # Join extracted text
+        return "\n".join(content)
+
+    return ""
+
 def sync_file(conn, filepath):
     """Process a single file: chunk, embed, and save to DB."""
     file_hash = calculate_file_hash(filepath)
@@ -78,8 +99,7 @@ def sync_file(conn, filepath):
     category = dir_name if dir_name else 'root'
 
     # Read content
-    with open(filepath, 'r', encoding='utf-8') as f:
-        content = f.read()
+    content = extract_text_from_file(filepath)
 
     if not content.strip():
         return # Skip empty files
@@ -138,7 +158,7 @@ def run_sync():
             continue
         for root, _, files in os.walk(directory):
             for file in files:
-                if file.endswith('.md'):
+                if file.lower().endswith(('.md', '.pdf')):
                     # Use forward slashes for cross-platform consistency
                     filepath = os.path.join(root, file).replace('\\', '/')
                     files_to_sync.append(filepath)
