@@ -21,7 +21,7 @@ A CLI tool for managing a personal knowledge base using an LLM, backed by OceanB
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/llm-wiki.git
+   git clone https://github.com/Hkxtor/llm-wiki.git
    cd llm-wiki
    ```
 
@@ -77,7 +77,7 @@ LLM Wiki 是一个基于命令行的个人知识库管理工具，结合大语�
 
 1. 克隆仓库：
    ```bash
-   git clone https://github.com/yourusername/llm-wiki.git
+   git clone https://github.com/Hkxtor/llm-wiki.git
    cd llm-wiki
    ```
 
