@@ -34,9 +34,12 @@ def get_config(conn, key):
             result = cursor.fetchone()
             if result:
                 return result['config_value']
-    except Exception:
-        pass
-    return None
+        return None
+    except pymysql.err.ProgrammingError:
+        # Table does not exist yet — treated as first-time setup
+        return None
+    except Exception as e:
+        raise RuntimeError(f"Failed to read config key '{key}' from database") from e
 
 def set_config(conn, key, value):
     with conn.cursor() as cursor:

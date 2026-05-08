@@ -44,26 +44,25 @@ def search_wiki(query, top_k=5, path_filter=None):
         conn = get_db_connection()
         with conn.cursor() as cursor:
 
-            # Construct base SQL
-            # We calculate cosine distance. Lower is better.
-            sql = f"""
+            # Parameterized vector query — avoids SQL injection (CWE-89)
+            base_sql = """
                 SELECT
                     file_path,
                     content,
-                    COSINE_DISTANCE(embedding, '{query_vector_str}') as distance
+                    COSINE_DISTANCE(embedding, %s) as distance
                 FROM wiki_chunks
             """
 
-            params = []
+            params = [query_vector_str]
 
-            # Add path filter if provided
             if path_filter:
-                sql += " WHERE file_path LIKE %s"
+                base_sql += " WHERE file_path LIKE %s"
                 params.append(f"%{path_filter}%")
 
-            sql += f" ORDER BY distance ASC LIMIT {int(top_k)}"
+            base_sql += " ORDER BY distance ASC LIMIT %s"
+            params.append(int(top_k))
 
-            cursor.execute(sql, params)
+            cursor.execute(base_sql, params)
             results = cursor.fetchall()
 
         return results

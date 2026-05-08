@@ -150,7 +150,7 @@ def run_sync():
     existing_docs = get_existing_documents(conn)
 
     # 3. Scan files
-    directories_to_scan = ['raw', 'wiki']
+    directories_to_scan = ['wiki']
     files_to_sync = []
 
     for directory in directories_to_scan:
