@@ -1,30 +1,47 @@
 import os
+
 import pymysql
 from dotenv import load_dotenv
 
-# Load environment variables
+from llm_wiki.config import Config
+
 load_dotenv()
 
-OB_HOST = os.getenv("OB_HOST", "127.0.0.1")
-OB_PORT = int(os.getenv("OB_PORT", 2881))
-OB_USER = os.getenv("OB_USER", "root")
-OB_PASSWORD = os.getenv("OB_PASSWORD", "")
-OB_DATABASE = os.getenv("OB_DATABASE", "llm_wiki")
-
+# Module-level defaults retained for backward-compatible callers (e.g. cli init command)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", 1536))
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 800))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
 
-def get_db_connection():
+
+def get_db_connection(cfg: Config | None = None) -> pymysql.connections.Connection:
+    if cfg is None:
+        cfg = Config(
+            ob_host=os.getenv("OB_HOST", "127.0.0.1"),
+            ob_port=int(os.getenv("OB_PORT", "2881")),
+            ob_user=os.getenv("OB_USER", "root"),
+            ob_password=os.getenv("OB_PASSWORD", ""),
+            ob_database=os.getenv("OB_DATABASE", "llm_wiki"),
+            embedding_model=EMBEDDING_MODEL,
+            embedding_dim=EMBEDDING_DIM,
+            embedding_api_base=None,
+            embedding_api_key=os.getenv("OPENAI_API_KEY", ""),
+            llm_model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            llm_api_base=None,
+            llm_api_key=os.getenv("OPENAI_API_KEY", ""),
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP,
+            wiki_dir=os.getenv("WIKI_DIR", "wiki"),
+            raw_dir=os.getenv("RAW_DIR", "raw"),
+        )
     return pymysql.connect(
-        host=OB_HOST,
-        port=OB_PORT,
-        user=OB_USER,
-        password=OB_PASSWORD,
-        database=OB_DATABASE,
+        host=cfg.ob_host,
+        port=cfg.ob_port,
+        user=cfg.ob_user,
+        password=cfg.ob_password,
+        database=cfg.ob_database,
         cursorclass=pymysql.cursors.DictCursor,
-        autocommit=True
+        autocommit=True,
     )
 
 def get_config(conn, key):

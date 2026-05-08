@@ -1,35 +1,25 @@
-
 import hashlib
-import uuid
-from chonkie import SentenceChunker
-from tqdm import tqdm
-from openai import OpenAI
-from dotenv import load_dotenv
-
-
-
-
-from llm_wiki.db import get_db_connection, ensure_schema_and_model_match
 import os
+import uuid
+
 import fitz
+from chonkie import SentenceChunker
+from dotenv import load_dotenv
+from tqdm import tqdm
 
-# Load env
-load_dotenv()
-
-# Constants
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", 1536))
-OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 800))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
-
-# Initialize OpenAI Client
-client = OpenAI(
-    api_key=OPENAI_API_KEY,
-    base_url=OPENAI_API_BASE if OPENAI_API_BASE else None
+from llm_wiki.config import Config
+from llm_wiki.db import (
+    CHUNK_OVERLAP,
+    CHUNK_SIZE,
+    EMBEDDING_DIM,
+    EMBEDDING_MODEL,
+    ensure_schema_and_model_match,
+    get_db_connection,
 )
+from llm_wiki.embeddings import Embedder, OpenAIEmbedder
+from llm_wiki.paths import WikiPaths
+
+load_dotenv()
 
 def calculate_file_hash(filepath):
     """Calculate MD5 hash of a file."""
@@ -54,22 +44,11 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
     chunks = chunker(text)
     return [chunk.text for chunk in chunks]
 
-def get_embeddings(texts):
-    """Fetch embeddings for a list of texts from OpenAI/Compatible API."""
-    # Process in batches to avoid API limits
-    batch_size = 100
-    all_embeddings = []
-
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i:i+batch_size]
-        response = client.embeddings.create(
-            input=batch,
-            model=EMBEDDING_MODEL
-        )
-        batch_embeddings = [data.embedding for data in response.data]
-        all_embeddings.extend(batch_embeddings)
-
-    return all_embeddings
+def get_embeddings(texts: list[str], embedder: Embedder | None = None) -> list[list[float]]:
+    if embedder is None:
+        cfg = Config.from_env()
+        embedder = OpenAIEmbedder(cfg)
+    return embedder.embed(texts)
 
 def extract_text_from_file(filepath: str) -> str:
     """Extracts text depending on the file type."""
@@ -91,7 +70,7 @@ def extract_text_from_file(filepath: str) -> str:
 
     return ""
 
-def sync_file(conn, filepath):
+def sync_file(conn, filepath: str, embedder: Embedder | None = None) -> None:
     """Process a single file: chunk, embed, and save to DB."""
     file_hash = calculate_file_hash(filepath)
     # Extract directory name as category (e.g., 'wiki/concepts' -> 'concepts')
@@ -109,7 +88,7 @@ def sync_file(conn, filepath):
         return
 
     print(f"  Generating embeddings for {len(chunks)} chunks in {filepath}...")
-    embeddings = get_embeddings(chunks)
+    embeddings = get_embeddings(chunks, embedder)
 
     doc_id = str(uuid.uuid4())
 
@@ -139,57 +118,54 @@ def sync_file(conn, filepath):
             VALUES (%s, %s, %s, %s, %s, %s)
         """, chunk_data)
 
-def run_sync():
-    conn = get_db_connection()
+def run_sync(paths: WikiPaths | None = None, embedder: Embedder | None = None) -> None:
+    cfg = Config.from_env()
+    if paths is None:
+        paths = WikiPaths.from_config(cfg)
 
-    # 1. Ensure Schema matches current model and chunk parameters
-    print("Checking database schema and model configuration...")
-    ensure_schema_and_model_match(conn, EMBEDDING_MODEL, EMBEDDING_DIM, CHUNK_SIZE, CHUNK_OVERLAP)
+    conn = get_db_connection(cfg)
+    try:
+        # 1. Ensure Schema matches current model and chunk parameters
+        print("Checking database schema and model configuration...")
+        ensure_schema_and_model_match(conn, cfg.embedding_model, cfg.embedding_dim, cfg.chunk_size, cfg.chunk_overlap)
 
-    # 2. Get existing state
-    existing_docs = get_existing_documents(conn)
+        # 2. Get existing state
+        existing_docs = get_existing_documents(conn)
 
-    # 3. Scan files
-    directories_to_scan = ['wiki']
-    files_to_sync = []
+        # 3. Scan wiki/ directory only
+        files_to_sync: list[str] = []
+        wiki_str = str(paths.wiki)
+        if os.path.exists(wiki_str):
+            for root, _, files in os.walk(wiki_str):
+                for file in files:
+                    if file.lower().endswith((".md", ".pdf")):
+                        filepath = os.path.join(root, file).replace("\\", "/")
+                        files_to_sync.append(filepath)
 
-    for directory in directories_to_scan:
-        if not os.path.exists(directory):
-            continue
-        for root, _, files in os.walk(directory):
-            for file in files:
-                if file.lower().endswith(('.md', '.pdf')):
-                    # Use forward slashes for cross-platform consistency
-                    filepath = os.path.join(root, file).replace('\\', '/')
-                    files_to_sync.append(filepath)
+        # 4. Compare and Sync
+        processed_count = 0
+        for filepath in tqdm(files_to_sync, desc="Scanning files"):
+            current_hash = calculate_file_hash(filepath)
+            if filepath not in existing_docs or existing_docs[filepath] != current_hash:
+                print(f"\nSyncing changed/new file: {filepath}")
+                try:
+                    sync_file(conn, filepath, embedder)
+                    processed_count += 1
+                except Exception as e:
+                    print(f"[X] Failed to sync {filepath}: {e}")
 
-    # 4. Compare and Sync
-    processed_count = 0
-    for filepath in tqdm(files_to_sync, desc="Scanning files"):
-        current_hash = calculate_file_hash(filepath)
+        # 5. Cleanup deleted files
+        current_files_set = set(files_to_sync)
+        deleted_files = set(existing_docs.keys()) - current_files_set
+        if deleted_files:
+            with conn.cursor() as cursor:
+                for df in deleted_files:
+                    print(f"Removing deleted file from index: {df}")
+                    cursor.execute("DELETE FROM wiki_documents WHERE file_path = %s", (df,))
 
-        # If file is new or hash changed
-        if filepath not in existing_docs or existing_docs[filepath] != current_hash:
-            print(f"\nSyncing changed/new file: {filepath}")
-            try:
-                sync_file(conn, filepath)
-                processed_count += 1
-            except Exception as e:
-                print(f"[X] Failed to sync {filepath}: {e}")
-
-    # 5. Cleanup deleted files
-    current_files_set = set(files_to_sync)
-    db_files_set = set(existing_docs.keys())
-    deleted_files = db_files_set - current_files_set
-
-    if deleted_files:
-        with conn.cursor() as cursor:
-            for df in deleted_files:
-                print(f"Removing deleted file from index: {df}")
-                cursor.execute("DELETE FROM wiki_documents WHERE file_path = %s", (df,))
-
-    conn.close()
-    print(f"\n[*] Sync complete. Processed {processed_count} files. Removed {len(deleted_files)} files.")
+        print(f"\n[*] Sync complete. Processed {processed_count} files. Removed {len(deleted_files)} files.")
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
     run_sync()

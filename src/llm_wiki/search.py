@@ -1,38 +1,28 @@
-import os
 import sys
-import argparse
-from openai import OpenAI
+from typing import Any
+
 from dotenv import load_dotenv
 
+from llm_wiki.config import Config
 from llm_wiki.db import get_db_connection
+from llm_wiki.embeddings import OpenAIEmbedder
 
-# Load env
 load_dotenv()
 
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Initialize OpenAI Client
-client = OpenAI(
-    api_key=OPENAI_API_KEY,
-    base_url=OPENAI_API_BASE if OPENAI_API_BASE else None
-)
-
-def search_wiki(query, top_k=5, path_filter=None):
+def search_wiki(query: str, top_k: int = 5, path_filter: str | None = None) -> list[dict[str, Any]]:
     """
     Search the wiki for the given query using OceanBase Vector Search.
     Returns the top K results.
     """
-    print(f"🔍 Searching for: '{query}'", file=sys.stderr)
+    print(f"Searching for: '{query}'", file=sys.stderr)
+
+    cfg = Config.from_env()
+    embedder = OpenAIEmbedder(cfg)
 
     # 1. Generate embedding for query
     try:
-        response = client.embeddings.create(
-            input=query,
-            model=EMBEDDING_MODEL
-        )
-        query_vector = response.data[0].embedding
+        query_vector = embedder.embed([query])[0]
         query_vector_str = str(query_vector)
     except Exception as e:
         print(f"[!] Failed to generate embedding: {e}", file=sys.stderr)
