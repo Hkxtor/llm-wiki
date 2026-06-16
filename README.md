@@ -111,3 +111,9 @@ LLM Wiki 是一个基于命令行的个人知识库管理工具，结合大语�
 
 ### 开源协议
 本项目采用 Apache License 2.0 协议开源。详情请参阅 [LICENSE](LICENSE) 文件。
+
+---
+
+### Repo Activity
+
+![Alt](https://repobeats.axiom.co/api/embed/69261b06a3291bea9862f65fa71f30065190eb5a.svg "Repobeats analytics image")
